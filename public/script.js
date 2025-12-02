@@ -3,43 +3,28 @@ const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDiv = document.getElementById('status');
 const overlay = document.getElementById('overlay');
-const container = document.getElementById('monitor-container'); // Need container to append canvas
+const container = document.getElementById('monitor-container');
+const fpsDisplay = document.getElementById('fps');
+const faceCountDisplay = document.getElementById('faceCount');
+const stressLevelDisplay = document.getElementById('stressLevel');
 
 let stream = null;
 let isMonitoring = false;
 let stressCounter = 0;
 let normalCounter = 0;
-const STRESS_THRESHOLD_FRAMES = 30; // Approx 1-2 seconds depending on FPS
-const NORMAL_THRESHOLD_FRAMES = 60; // Approx 2-3 seconds to ensure calm
+const STRESS_THRESHOLD_FRAMES = 30;
+const NORMAL_THRESHOLD_FRAMES = 60;
+
+// FPS tracking
+let lastFrameTime = Date.now();
+let frameCount = 0;
+let fps = 0;
 
 // Debug Canvas
 let canvas;
 
-// YouTube Player
-let player;
-let isPlayerReady = false;
-
-// Load YouTube IFrame API
-const tag = document.createElement('script');
-tag.src = "https://www.youtube.com/iframe_api";
-const firstScriptTag = document.getElementsByTagName('script')[0];
-firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-function onYouTubeIframeAPIReady() {
-    player = new YT.Player('player', {
-        height: '0',
-        width: '0',
-        videoId: 'qYnA9wWFHLI', // Weightless by Marconi Union
-        events: {
-            'onReady': onPlayerReady
-        }
-    });
-}
-
-function onPlayerReady(event) {
-    console.log("YouTube Player Ready");
-    isPlayerReady = true;
-}
+// Music intervention state
+let isMusicPlaying = false;
 
 // Load models
 Promise.all([
@@ -124,9 +109,22 @@ async function detectEmotions(displaySize) {
         return;
     }
 
+    // Calculate FPS
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFrameTime >= 1000) {
+        fps = frameCount;
+        fpsDisplay.textContent = fps;
+        frameCount = 0;
+        lastFrameTime = now;
+    }
+
     // Detect faces
     const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
         .withFaceExpressions();
+
+    // Update face count
+    faceCountDisplay.textContent = detections.length;
 
     // Resize for drawing
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -144,12 +142,13 @@ async function detectEmotions(displaySize) {
         if (Math.random() < 0.05) console.log("Expressions:", expressions);
 
         // Check for negative emotions
-        // "angry", "sad", "fearful", "disgusted"
         const stressScore = expressions.angry + expressions.sad + expressions.fearful + expressions.disgusted;
+        
+        // Update stress level display
+        stressLevelDisplay.textContent = (stressScore * 100).toFixed(0) + '%';
+        stressLevelDisplay.style.color = stressScore > 0.5 ? 'var(--danger-color)' : 'var(--accent-color)';
 
-        // "neutral", "happy", "surprised" are considered non-stress
-
-        if (stressScore > 0.5) { // Threshold
+        if (stressScore > 0.5) {
             statusDiv.textContent = "STATUS: HIGH STRESS DETECTED (" + stressScore.toFixed(2) + ")";
             statusDiv.className = "stress-high";
             stressCounter++;
@@ -164,7 +163,7 @@ async function detectEmotions(displaySize) {
         // Trigger server action if stress persists
         if (stressCounter > STRESS_THRESHOLD_FRAMES) {
             triggerCalmingIntervention();
-            stressCounter = 0; // Reset to avoid spamming
+            stressCounter = 0;
         }
 
         // Stop music if normal state persists
@@ -175,31 +174,69 @@ async function detectEmotions(displaySize) {
     } else {
         statusDiv.textContent = "STATUS: SEARCHING FOR SUBJECT...";
         statusDiv.className = "";
+        stressLevelDisplay.textContent = "--";
     }
 
     // Loop using requestAnimationFrame for best performance
     requestAnimationFrame(() => detectEmotions(displaySize));
 }
 
-function triggerCalmingIntervention() {
+async function triggerCalmingIntervention() {
+    if (isMusicPlaying) return; // Already playing
+    
     console.log("Triggering intervention...");
     overlay.textContent = "SYSTEM: INITIATING CALMING PROTOCOL...";
 
-    if (isPlayerReady) {
-        player.playVideo();
-        overlay.textContent = "SYSTEM: CALMING PROTOCOL ACTIVE (PLAYING AUDIO)";
-        setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 5000);
-    } else {
-        console.error("Player not ready");
-        overlay.textContent = "SYSTEM: AUDIO ERROR - PLAYER NOT READY";
+    try {
+        console.log("Sending POST to /intervene...");
+        const response = await fetch('/intervene', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        console.log("Response status:", response.status);
+        const result = await response.json();
+        console.log("Response data:", result);
+        
+        if (result.status === 'success') {
+            isMusicPlaying = true;
+            overlay.textContent = "SYSTEM: CALMING PROTOCOL ACTIVE (SPOTIFY)";
+            console.log("Intervention successful:", result.action);
+            setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 5000);
+        } else {
+            console.error("Intervention failed:", result.error);
+            overlay.textContent = `SYSTEM: ERROR - ${result.error.substring(0, 50)}`;
+            setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 5000);
+        }
+    } catch (error) {
+        console.error("Intervention request failed:", error);
+        overlay.textContent = "SYSTEM: CONNECTION ERROR - CHECK CONSOLE";
+        setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 3000);
     }
 }
 
-function stopCalmingIntervention() {
-    if (isPlayerReady && player.getPlayerState() === 1) { // 1 = Playing
-        console.log("Stopping intervention...");
-        player.pauseVideo();
-        overlay.textContent = "SYSTEM: STRESS LEVELS NORMALIZED. AUDIO STOPPED.";
+async function stopCalmingIntervention() {
+    if (!isMusicPlaying) return;
+    
+    console.log("Stopping intervention...");
+    overlay.textContent = "SYSTEM: STOPPING CALMING PROTOCOL...";
+    
+    try {
+        const response = await fetch('/stop-music', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const result = await response.json();
+        console.log("Stop music result:", result);
+        
+        isMusicPlaying = false;
+        overlay.textContent = "SYSTEM: STRESS LEVELS NORMALIZED. MUSIC STOPPED.";
+        setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 3000);
+    } catch (error) {
+        console.error("Stop music failed:", error);
+        isMusicPlaying = false;
+        overlay.textContent = "SYSTEM: STRESS NORMALIZED.";
         setTimeout(() => { overlay.textContent = "SYSTEM: ONLINE"; }, 3000);
     }
 }
@@ -207,3 +244,35 @@ function stopCalmingIntervention() {
 startBtn.addEventListener('click', startMonitoring);
 stopBtn.addEventListener('click', stopMonitoring);
 document.getElementById('testBtn').addEventListener('click', triggerCalmingIntervention);
+
+// Check connection status on load
+async function checkStatus() {
+    try {
+        const response = await fetch('/status');
+        const status = await response.json();
+        const statusDiv = document.getElementById('connection-status');
+        
+        console.log('Status check:', status);
+        
+        if (status.hands) {
+            statusDiv.textContent = '✓ Spotify Connected - Ready to play music';
+            statusDiv.style.color = 'var(--accent-color)';
+            document.getElementById('loginBtn').style.display = 'none';
+        } else {
+            statusDiv.textContent = '⚠ Spotify Not Connected - Click "CONNECT SPOTIFY" first!';
+            statusDiv.style.color = 'var(--warning-color)';
+            document.getElementById('loginBtn').style.display = 'inline-block';
+        }
+    } catch (error) {
+        console.error('Status check failed:', error);
+    }
+}
+
+// Check if we just connected
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('connected') === 'true') {
+    overlay.textContent = 'SYSTEM: SPOTIFY CONNECTED';
+    setTimeout(() => { overlay.textContent = 'SYSTEM: ONLINE'; }, 3000);
+}
+
+checkStatus();

@@ -30,7 +30,71 @@ const Hands = require('./hands');
 const brain = new Brain(process.env.ANTHROPIC_API_KEY);
 const hands = new Hands(process.env.SPOTIFY_MCP_URL);
 
-// ... (rest of code)
+// API Endpoints
+app.post('/analyze', upload.single('snapshot'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No snapshot provided' });
+        }
+
+        console.log('Received snapshot for analysis');
+        const result = await brain.analyze(req.file.buffer, null);
+        
+        res.json(result);
+    } catch (error) {
+        console.error('Analysis error:', error);
+        res.status(500).json({ error: 'Analysis failed', message: error.message });
+    }
+});
+
+app.post('/intervene', async (req, res) => {
+    try {
+        console.log('=== Intervention requested ===');
+        console.log('Hands connected:', hands.isConnected());
+        console.log('USE_MCP:', process.env.USE_MCP);
+        
+        const result = await hands.playCalmingMusic();
+        
+        console.log('Intervention result:', result);
+        res.json(result);
+    } catch (error) {
+        console.error('Intervention error:', error);
+        res.status(500).json({ 
+            status: 'error',
+            error: 'Intervention failed', 
+            message: error.message 
+        });
+    }
+});
+
+app.post('/stop-music', async (req, res) => {
+    try {
+        console.log('=== Stop music requested ===');
+        const result = await hands.stopMusic();
+        console.log('Stop music result:', result);
+        res.json(result);
+    } catch (error) {
+        console.error('Stop music error:', error);
+        res.status(500).json({ 
+            status: 'error',
+            error: 'Stop failed', 
+            message: error.message 
+        });
+    }
+});
+
+app.get('/status', (req, res) => {
+    res.json({
+        brain: !!brain.anthropic,
+        hands: hands.isConnected(),
+        spotify: {
+            clientIdSet: !!SPOTIFY_CLIENT_ID,
+            clientSecretSet: !!SPOTIFY_CLIENT_SECRET,
+            redirectUri: SPOTIFY_REDIRECT_URI
+        },
+        timestamp: new Date().toISOString()
+    });
+});
 
 // Spotify Auth Endpoints
 app.get('/login', (req, res) => {
@@ -45,21 +109,40 @@ app.get('/login', (req, res) => {
 
 app.get('/callback', async (req, res) => {
     const code = req.query.code || null;
+    const error = req.query.error || null;
+    
     console.log("Received Spotify Callback. Code:", code ? "Present" : "Missing");
+    
+    if (error) {
+        console.error("Spotify authorization error:", error);
+        return res.redirect('/?connected=false&error=' + encodeURIComponent(error));
+    }
+    
+    if (!code) {
+        console.error("No authorization code received");
+        return res.redirect('/?connected=false&error=no_code');
+    }
 
     try {
-        const params = new URLSearchParams();
-        params.append('code', code);
-        params.append('redirect_uri', SPOTIFY_REDIRECT_URI);
-        params.append('grant_type', 'authorization_code');
-
+        const authString = Buffer.from(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET).toString('base64');
+        
         console.log("Exchanging code for token...");
-        const response = await axios.post('https://accounts.spotify.com/api/token', params, {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': 'Basic ' + (new Buffer.from(SPOTIFY_CLIENT_ID + ':' + SPOTIFY_CLIENT_SECRET).toString('base64'))
+        console.log("Client ID:", SPOTIFY_CLIENT_ID);
+        console.log("Redirect URI:", SPOTIFY_REDIRECT_URI);
+        
+        const response = await axios.post('https://accounts.spotify.com/api/token', 
+            new URLSearchParams({
+                code: code,
+                redirect_uri: SPOTIFY_REDIRECT_URI,
+                grant_type: 'authorization_code'
+            }).toString(),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': 'Basic ' + authString
+                }
             }
-        });
+        );
 
         const accessToken = response.data.access_token;
         const refreshToken = response.data.refresh_token;
@@ -81,7 +164,8 @@ app.get('/callback', async (req, res) => {
 
     } catch (error) {
         console.error('Spotify Auth Error:', error.response ? error.response.data : error.message);
-        res.redirect('/?connected=false&error=' + encodeURIComponent(error.message));
+        const errorMsg = error.response?.data?.error_description || error.response?.data?.error || error.message;
+        res.redirect('/?connected=false&error=' + encodeURIComponent(errorMsg));
     }
 });
 

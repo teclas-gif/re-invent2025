@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "spotify": {
+      "command": "uvx",
+      "args": ["mcp-server-spotify"],
+      "env": {
+        "SPOTIFY_CLIENT_ID": "${SPOTIFY_CLIENT_ID}",
+        "SPOTIFY_CLIENT_SECRET": "${SPOTIFY_CLIENT_SECRET}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "spotify_search_tracks",
+        "spotify_play_track",
+        "spotify_pause",
+        "spotify_get_current_playback"
+      ]
+    }
+  }
+}
