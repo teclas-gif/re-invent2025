@@ -1,0 +1,28 @@
+{
+  "name": "re-invent2025",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teclas-gif/re-invent2025.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/teclas-gif/re-invent2025/issues"
+  },
+  "homepage": "https://github.com/teclas-gif/re-invent2025#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "multer": "^2.0.2"
+  }
+}

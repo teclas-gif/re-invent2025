@@ -1,0 +1,4 @@
+node_modules/
+.env
+.spotify_token
+.DS_Store
